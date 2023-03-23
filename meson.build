@@ -1,4 +1,4 @@
-project('lite_xl_plugin_api', 'c')
+project('lite_xl_plugin_api', ['c', 'cpp'])
 
 inc = include_directories('include')
 
