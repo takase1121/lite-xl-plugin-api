@@ -39,12 +39,38 @@
 #define LITE_XL_PLUGIN_API
 
 #include <stdio.h>
+#include <stdlib.h>
+
+#ifdef __GNUC__
+#define UNUSED __attribute__((__unused__))
+#else
+#define UNUSED
+#endif
+
+/* FOR_EACH macro */
+#define CONCAT(arg1, arg2)   CONCAT1(arg1, arg2)
+#define CONCAT1(arg1, arg2)  CONCAT2(arg1, arg2)
+#define CONCAT2(arg1, arg2)  arg1##arg2
+#define FE_1(what, x) what x
+#define FE_2(what, x, ...) what x,FE_1(what, __VA_ARGS__)
+#define FE_3(what, x, ...) what x,FE_2(what, __VA_ARGS__)
+#define FE_4(what, x, ...) what x,FE_3(what,  __VA_ARGS__)
+#define FE_5(what, x, ...) what x,FE_4(what,  __VA_ARGS__)
+#define FE_6(what, x, ...) what x,FE_5(what,  __VA_ARGS__)
+#define FE_7(what, x, ...) what x,FE_6(what,  __VA_ARGS__)
+#define FE_8(what, x, ...) what x,FE_7(what,  __VA_ARGS__)
+#define FOR_EACH_NARG(...) FOR_EACH_NARG_(__VA_ARGS__, FOR_EACH_RSEQ_N())
+#define FOR_EACH_NARG_(...) FOR_EACH_ARG_N(__VA_ARGS__) 
+#define FOR_EACH_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, N, ...) N 
+#define FOR_EACH_RSEQ_N() 8, 7, 6, 5, 4, 3, 2, 1, 0
+#define FOR_EACH_(N, what, ...) CONCAT(FE_, N)(what, __VA_ARGS__)
+#define FOR_EACH(what, ...) FOR_EACH_(FOR_EACH_NARG(__VA_ARGS__), what, __VA_ARGS__)
 
 #define SYMBOL_WRAP_DECL(ret, name, ...) \
   ret name(__VA_ARGS__)
 
 #define SYMBOL_WRAP_CALL(name, ...) \
-  return __##name(__VA_ARGS__)
+  __##name(__VA_ARGS__)
 
 #define SYMBOL_WRAP_CALL_FB(name, ...) \
   return __lite_xl_fallback_##name(__VA_ARGS__)
@@ -53,13 +79,22 @@
   #define SYMBOL_DECLARE(ret, name, ...) \
     static ret (*__##name)  (__VA_ARGS__); \
     SYMBOL_WRAP_DECL(ret, name, __VA_ARGS__); \
-    static ret __lite_xl_fallback_##name(...) { \
+    static ret __lite_xl_fallback_##name(FOR_EACH(UNUSED, __VA_ARGS__)) { \
+      fputs("warning: " #name " is a stub", stderr); \
+      exit(1); \
+    }
+  #define SYMBOL_DECLARE_VARARG(ret, name, ...) \
+    static ret (*__##name)  (__VA_ARGS__, ...); \
+    SYMBOL_WRAP_DECL(ret, name, __VA_ARGS__, ...); \
+    static ret __lite_xl_fallback_##name(FOR_EACH(UNUSED, __VA_ARGS__), ...) { \
       fputs("warning: " #name " is a stub", stderr); \
       exit(1); \
     }
 #else
   #define SYMBOL_DECLARE(ret, name, ...) \
     SYMBOL_WRAP_DECL(ret, name, __VA_ARGS__);
+  #define SYMBOL_DECLARE_VARARG(ret, name, ...) \
+    SYMBOL_WRAP_DECL(ret, name, __VA_ARGS__, ...);
 #endif
 
 
@@ -1077,7 +1112,7 @@ SYMBOL_DECLARE(const char *, lua_pushlstring, lua_State *L, const char *s, size_
 SYMBOL_DECLARE(const char *, lua_pushstring, lua_State *L, const char *s)
 SYMBOL_DECLARE(const char *, lua_pushvfstring, lua_State *L, const char *fmt,
                                                       va_list argp)
-SYMBOL_DECLARE(const char *, lua_pushfstring, lua_State *L, const char *fmt, ...)
+SYMBOL_DECLARE_VARARG(const char *, lua_pushfstring, lua_State *L, const char *fmt)
 SYMBOL_DECLARE(void  , lua_pushcclosure, lua_State *L, lua_CFunction fn, int n)
 SYMBOL_DECLARE(void  , lua_pushboolean, lua_State *L, int b)
 SYMBOL_DECLARE(void  , lua_pushlightuserdata, lua_State *L, void *p)
@@ -1168,7 +1203,7 @@ SYMBOL_DECLARE(void, lua_warning, lua_State *L, const char *msg, int tocont)
 #define LUA_GCGEN               10
 #define LUA_GCINC               11
 
-SYMBOL_DECLARE(int, lua_gc, lua_State *L, int what, ...)
+SYMBOL_DECLARE_VARARG(int, lua_gc, lua_State *L, int what)
 
 
 /*
@@ -1409,7 +1444,7 @@ SYMBOL_DECLARE(void *, luaL_testudata, lua_State *L, int ud, const char *tname)
 SYMBOL_DECLARE(void *, luaL_checkudata, lua_State *L, int ud, const char *tname)
 
 SYMBOL_DECLARE(void, luaL_where, lua_State *L, int lvl)
-SYMBOL_DECLARE(int, luaL_error, lua_State *L, const char *fmt, ...)
+SYMBOL_DECLARE_VARARG(int, luaL_error, lua_State *L, const char *fmt)
 
 SYMBOL_DECLARE(int, luaL_checkoption, lua_State *L, int arg, const char *def,
                                       const char *const lst[])
@@ -1696,25 +1731,25 @@ SYMBOL_DECLARE(void, luaL_openlibs, lua_State *L)
 #ifdef LITE_XL_PLUGIN_ENTRYPOINT
 
 SYMBOL_WRAP_DECL(lua_State *, lua_newstate, lua_Alloc f, void *ud) {
-  SYMBOL_WRAP_CALL(lua_newstate, f, ud);
+  return SYMBOL_WRAP_CALL(lua_newstate, f, ud);
 }
 SYMBOL_WRAP_DECL(void, lua_close, lua_State *L) {
   SYMBOL_WRAP_CALL(lua_close, L);
 }
 SYMBOL_WRAP_DECL(lua_State *, lua_newthread, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_newthread, L);
+  return SYMBOL_WRAP_CALL(lua_newthread, L);
 }
 SYMBOL_WRAP_DECL(int, lua_resetthread, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_resetthread, L);
+  return SYMBOL_WRAP_CALL(lua_resetthread, L);
 }
 
 SYMBOL_WRAP_DECL(lua_CFunction, lua_atpanic, lua_State *L, lua_CFunction panicf) {
-  SYMBOL_WRAP_CALL(lua_atpanic, L, panicf);
+  return SYMBOL_WRAP_CALL(lua_atpanic, L, panicf);
 }
 
 
 SYMBOL_WRAP_DECL(lua_Number, lua_version, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_version, L);
+  return SYMBOL_WRAP_CALL(lua_version, L);
 }
 
 
@@ -1722,10 +1757,10 @@ SYMBOL_WRAP_DECL(lua_Number, lua_version, lua_State *L) {
 
 
 SYMBOL_WRAP_DECL(int, lua_absindex, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_absindex, L, idx);
+  return SYMBOL_WRAP_CALL(lua_absindex, L, idx);
 }
 SYMBOL_WRAP_DECL(int, lua_gettop, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_gettop, L);
+  return SYMBOL_WRAP_CALL(lua_gettop, L);
 }
 SYMBOL_WRAP_DECL(void, lua_settop, lua_State *L, int idx) {
   SYMBOL_WRAP_CALL(lua_settop, L, idx);
@@ -1740,7 +1775,7 @@ SYMBOL_WRAP_DECL(void, lua_copy, lua_State *L, int fromidx, int toidx) {
   SYMBOL_WRAP_CALL(lua_copy, L, fromidx, toidx);
 }
 SYMBOL_WRAP_DECL(int, lua_checkstack, lua_State *L, int sz) {
-  SYMBOL_WRAP_CALL(lua_checkstack, L, sz);
+  return SYMBOL_WRAP_CALL(lua_checkstack, L, sz);
 }
 SYMBOL_WRAP_DECL(void, lua_xmove, lua_State *from, lua_State *to, int n) {
   SYMBOL_WRAP_CALL(lua_xmove, from, to, n);
@@ -1752,53 +1787,53 @@ SYMBOL_WRAP_DECL(void, lua_xmove, lua_State *from, lua_State *to, int n) {
 
 
 SYMBOL_WRAP_DECL(int, lua_isnumber, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_isnumber, L, idx);
+  return SYMBOL_WRAP_CALL(lua_isnumber, L, idx);
 }
 SYMBOL_WRAP_DECL(int, lua_isstring, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_isstring, L, idx);
+  return SYMBOL_WRAP_CALL(lua_isstring, L, idx);
 }
 SYMBOL_WRAP_DECL(int, lua_iscfunction, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_iscfunction, L, idx);
+  return SYMBOL_WRAP_CALL(lua_iscfunction, L, idx);
 }
 SYMBOL_WRAP_DECL(int, lua_isinteger, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_isinteger, L, idx);
+  return SYMBOL_WRAP_CALL(lua_isinteger, L, idx);
 }
 SYMBOL_WRAP_DECL(int, lua_isuserdata, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_isuserdata, L, idx);
+  return SYMBOL_WRAP_CALL(lua_isuserdata, L, idx);
 }
 SYMBOL_WRAP_DECL(int, lua_type, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_type, L, idx);
+  return SYMBOL_WRAP_CALL(lua_type, L, idx);
 }
 SYMBOL_WRAP_DECL(const char *, lua_typename, lua_State *L, int tp) {
-  SYMBOL_WRAP_CALL(lua_typename, L, tp);
+  return SYMBOL_WRAP_CALL(lua_typename, L, tp);
 }
 
 SYMBOL_WRAP_DECL(lua_Number, lua_tonumberx, lua_State *L, int idx, int *isnum) {
-  SYMBOL_WRAP_CALL(lua_tonumberx, L, idx, isnum);
+  return SYMBOL_WRAP_CALL(lua_tonumberx, L, idx, isnum);
 }
 SYMBOL_WRAP_DECL(lua_Integer, lua_tointegerx, lua_State *L, int idx, int *isnum) {
-  SYMBOL_WRAP_CALL(lua_tointegerx, L, idx, isnum);
+  return SYMBOL_WRAP_CALL(lua_tointegerx, L, idx, isnum);
 }
 SYMBOL_WRAP_DECL(int, lua_toboolean, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_toboolean, L, idx);
+  return SYMBOL_WRAP_CALL(lua_toboolean, L, idx);
 }
 SYMBOL_WRAP_DECL(const char *, lua_tolstring, lua_State *L, int idx, size_t *len) {
-  SYMBOL_WRAP_CALL(lua_tolstring, L, idx, len);
+  return SYMBOL_WRAP_CALL(lua_tolstring, L, idx, len);
 }
-SYMBOL_WRAP_DECL(size_t, lua_rawlen, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_rawlen, L, idx);
+SYMBOL_WRAP_DECL(lua_Unsigned, lua_rawlen, lua_State *L, int idx) {
+  return SYMBOL_WRAP_CALL(lua_rawlen, L, idx);
 }
 SYMBOL_WRAP_DECL(lua_CFunction, lua_tocfunction, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_tocfunction, L, idx);
+  return SYMBOL_WRAP_CALL(lua_tocfunction, L, idx);
 }
 SYMBOL_WRAP_DECL(void *, lua_touserdata, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_touserdata, L, idx);
+  return SYMBOL_WRAP_CALL(lua_touserdata, L, idx);
 }
 SYMBOL_WRAP_DECL(lua_State *, lua_tothread, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_tothread, L, idx);
+  return SYMBOL_WRAP_CALL(lua_tothread, L, idx);
 }
 SYMBOL_WRAP_DECL(const void *, lua_topointer, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_topointer, L, idx);
+  return SYMBOL_WRAP_CALL(lua_topointer, L, idx);
 }
 
 
@@ -1811,10 +1846,10 @@ SYMBOL_WRAP_DECL(void, lua_arith, lua_State *L, int op) {
 }
 
 SYMBOL_WRAP_DECL(int, lua_rawequal, lua_State *L, int idx1, int idx2) {
-  SYMBOL_WRAP_CALL(lua_rawequal, L, idx1, idx2);
+  return SYMBOL_WRAP_CALL(lua_rawequal, L, idx1, idx2);
 }
 SYMBOL_WRAP_DECL(int, lua_compare, lua_State *L, int idx1, int idx2, int op) {
-  SYMBOL_WRAP_CALL(lua_compare, L, idx1, idx2, op);
+  return SYMBOL_WRAP_CALL(lua_compare, L, idx1, idx2, op);
 }
 
 SYMBOL_WRAP_DECL(void, lua_pushnil, lua_State *L) {
@@ -1827,16 +1862,21 @@ SYMBOL_WRAP_DECL(void, lua_pushinteger, lua_State *L, lua_Integer n) {
   SYMBOL_WRAP_CALL(lua_pushinteger, L, n);
 }
 SYMBOL_WRAP_DECL(const char *, lua_pushlstring, lua_State *L, const char *s, size_t l) {
-  SYMBOL_WRAP_CALL(lua_pushlstring, L, s, l);
+  return SYMBOL_WRAP_CALL(lua_pushlstring, L, s, l);
 }
 SYMBOL_WRAP_DECL(const char *, lua_pushstring, lua_State *L, const char *s) {
-  SYMBOL_WRAP_CALL(lua_pushstring, L, s);
+  return SYMBOL_WRAP_CALL(lua_pushstring, L, s);
 }
 SYMBOL_WRAP_DECL(const char *, lua_pushvfstring, lua_State *L, const char *fmt, va_list argp) {
-  SYMBOL_WRAP_CALL(lua_pushvfstring, L, fmt, argp);
+  return SYMBOL_WRAP_CALL(lua_pushvfstring, L, fmt, argp);
 }
 SYMBOL_WRAP_DECL(const char *, lua_pushfstring, lua_State *L, const char *fmt, ...) {
-  SYMBOL_WRAP_CALL(lua_pushfstring, L, fmt);
+  const char *res;
+  va_list argp;
+  va_start(argp, fmt);
+  res = lua_pushvfstring(L, fmt, argp);
+  va_end(argp);
+  return res;
 }
 SYMBOL_WRAP_DECL(void, lua_pushcclosure, lua_State *L, lua_CFunction fn, int n) {
   SYMBOL_WRAP_CALL(lua_pushcclosure, L, fn, n);
@@ -1848,7 +1888,7 @@ SYMBOL_WRAP_DECL(void, lua_pushlightuserdata, lua_State *L, void *p) {
   SYMBOL_WRAP_CALL(lua_pushlightuserdata, L, p);
 }
 SYMBOL_WRAP_DECL(int, lua_pushthread, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_pushthread, L);
+  return SYMBOL_WRAP_CALL(lua_pushthread, L);
 }
 
 
@@ -1856,37 +1896,37 @@ SYMBOL_WRAP_DECL(int, lua_pushthread, lua_State *L) {
 
 
 SYMBOL_WRAP_DECL(int, lua_getglobal, lua_State *L, const char *var) {
-  SYMBOL_WRAP_CALL(lua_getglobal, L, var);
+  return SYMBOL_WRAP_CALL(lua_getglobal, L, var);
 }
 SYMBOL_WRAP_DECL(int, lua_gettable, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_gettable, L, idx);
+  return SYMBOL_WRAP_CALL(lua_gettable, L, idx);
 }
 SYMBOL_WRAP_DECL(int, lua_getfield, lua_State *L, int idx, const char *k) {
-  SYMBOL_WRAP_CALL(lua_getfield, L, idx, k);
+  return SYMBOL_WRAP_CALL(lua_getfield, L, idx, k);
 }
 SYMBOL_WRAP_DECL(int , lua_geti, lua_State *L, int idx, lua_Integer n) {
-  SYMBOL_WRAP_CALL(lua_geti, L, idx, n);
+  return SYMBOL_WRAP_CALL(lua_geti, L, idx, n);
 }
 SYMBOL_WRAP_DECL(int, lua_rawget, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_rawget, L, idx);
+  return SYMBOL_WRAP_CALL(lua_rawget, L, idx);
 }
 SYMBOL_WRAP_DECL(int, lua_rawgeti, lua_State *L, int idx, lua_Integer n) {
-  SYMBOL_WRAP_CALL(lua_rawgeti, L, idx, n);
+  return SYMBOL_WRAP_CALL(lua_rawgeti, L, idx, n);
 }
 SYMBOL_WRAP_DECL(int, lua_rawgetp, lua_State *L, int idx, const void *p) {
-  SYMBOL_WRAP_CALL(lua_rawgetp, L, idx, p);
+  return SYMBOL_WRAP_CALL(lua_rawgetp, L, idx, p);
 }
 SYMBOL_WRAP_DECL(void, lua_createtable, lua_State *L, int narr, int nrec) {
   SYMBOL_WRAP_CALL(lua_createtable, L, narr, nrec);
 }
 SYMBOL_WRAP_DECL(void *, lua_newuserdatauv, lua_State *L, size_t sz, int nuvalue) {
-  SYMBOL_WRAP_CALL(lua_newuserdatauv, L, sz, nuvalue);
+  return SYMBOL_WRAP_CALL(lua_newuserdatauv, L, sz, nuvalue);
 }
 SYMBOL_WRAP_DECL(int, lua_getmetatable, lua_State *L, int objindex) {
-  SYMBOL_WRAP_CALL(lua_getmetatable, L, objindex);
+  return SYMBOL_WRAP_CALL(lua_getmetatable, L, objindex);
 }
 SYMBOL_WRAP_DECL(int, lua_getiuservalue, lua_State *L, int idx, int n) {
-  SYMBOL_WRAP_CALL(lua_getiuservalue, L, idx, n);
+  return SYMBOL_WRAP_CALL(lua_getiuservalue, L, idx, n);
 }
 
 SYMBOL_WRAP_DECL(void, lua_setglobal, lua_State *L, const char *var) {
@@ -1911,10 +1951,10 @@ SYMBOL_WRAP_DECL(void, lua_rawsetp, lua_State *L, int idx, const void *p) {
   SYMBOL_WRAP_CALL(lua_rawsetp, L, idx, p);
 }
 SYMBOL_WRAP_DECL(int, lua_setmetatable, lua_State *L, int objindex) {
-  SYMBOL_WRAP_CALL(lua_setmetatable, L, objindex);
+  return SYMBOL_WRAP_CALL(lua_setmetatable, L, objindex);
 }
 SYMBOL_WRAP_DECL(int, lua_setiuservalue, lua_State *L, int idx, int n) {
-  SYMBOL_WRAP_CALL(lua_setiuservalue, L, idx, n);
+  return SYMBOL_WRAP_CALL(lua_setiuservalue, L, idx, n);
 }
 
 
@@ -1925,13 +1965,13 @@ SYMBOL_WRAP_DECL(void, lua_callk, lua_State *L, int nargs, int nresults, lua_KCo
   SYMBOL_WRAP_CALL(lua_callk, L, nargs, nresults, ctx, k);
 }
 SYMBOL_WRAP_DECL(int, lua_pcallk, lua_State *L, int nargs, int nresults, int errfunc, lua_KContext ctx, lua_KFunction k) {
-  SYMBOL_WRAP_CALL(lua_pcallk, L, nargs, nresults, errfunc, ctx, k);
+  return SYMBOL_WRAP_CALL(lua_pcallk, L, nargs, nresults, errfunc, ctx, k);
 }
 SYMBOL_WRAP_DECL(int, lua_load, lua_State *L, lua_Reader reader, void *dt, const char *chunkname, const char *mode) {
-  SYMBOL_WRAP_CALL(lua_load, L, reader, dt, chunkname, mode);
+  return SYMBOL_WRAP_CALL(lua_load, L, reader, dt, chunkname, mode);
 }
 SYMBOL_WRAP_DECL(int, lua_dump, lua_State *L, lua_Writer writer, void *data, int strip) {
-  SYMBOL_WRAP_CALL(lua_dump, L, writer, data, strip);
+  return SYMBOL_WRAP_CALL(lua_dump, L, writer, data, strip);
 }
 
 
@@ -1939,16 +1979,16 @@ SYMBOL_WRAP_DECL(int, lua_dump, lua_State *L, lua_Writer writer, void *data, int
 
 
 SYMBOL_WRAP_DECL(int, lua_yieldk, lua_State *L, int nresults, lua_KContext ctx, lua_KFunction k) {
-  SYMBOL_WRAP_CALL(lua_yieldk, L, nresults, ctx, k);
+  return SYMBOL_WRAP_CALL(lua_yieldk, L, nresults, ctx, k);
 }
 SYMBOL_WRAP_DECL(int, lua_resume, lua_State *L, lua_State *from, int narg, int *nres) {
-  SYMBOL_WRAP_CALL(lua_resume, L, from, narg, nres);
+  return SYMBOL_WRAP_CALL(lua_resume, L, from, narg, nres);
 }
 SYMBOL_WRAP_DECL(int, lua_status, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_status, L);
+  return SYMBOL_WRAP_CALL(lua_status, L);
 }
 SYMBOL_WRAP_DECL(int, lua_isyieldable, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_isyieldable, L);
+  return SYMBOL_WRAP_CALL(lua_isyieldable, L);
 }
 
 
@@ -1996,11 +2036,11 @@ SYMBOL_WRAP_DECL(int, lua_gc, lua_State *L, int what, ...) {
 
 
 SYMBOL_WRAP_DECL(int, lua_error, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_error, L);
+  return SYMBOL_WRAP_CALL(lua_error, L);
 }
 
 SYMBOL_WRAP_DECL(int, lua_next, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(lua_next, L, idx);
+  return SYMBOL_WRAP_CALL(lua_next, L, idx);
 }
 
 SYMBOL_WRAP_DECL(void, lua_concat, lua_State *L, int n) {
@@ -2011,11 +2051,11 @@ SYMBOL_WRAP_DECL(void, lua_len, lua_State *L, int idx) {
 }
 
 SYMBOL_WRAP_DECL(size_t, lua_stringtonumber, lua_State *L, const char *s) {
-  SYMBOL_WRAP_CALL(lua_stringtonumber, L, s);
+  return SYMBOL_WRAP_CALL(lua_stringtonumber, L, s);
 }
 
 SYMBOL_WRAP_DECL(lua_Alloc, lua_getallocf, lua_State *L, void **ud) {
-  SYMBOL_WRAP_CALL(lua_getallocf, L, ud);
+  return SYMBOL_WRAP_CALL(lua_getallocf, L, ud);
 }
 SYMBOL_WRAP_DECL(void, lua_setallocf, lua_State *L, lua_Alloc f, void *ud) {
   SYMBOL_WRAP_CALL(lua_setallocf, L, f, ud);
@@ -2034,26 +2074,26 @@ SYMBOL_WRAP_DECL(void, lua_closeslot, lua_State *L, int idx) {
 
 
 SYMBOL_WRAP_DECL(int, lua_getstack, lua_State *L, int level, lua_Debug *ar) {
-  SYMBOL_WRAP_CALL(lua_getstack, L, level, ar);
+  return SYMBOL_WRAP_CALL(lua_getstack, L, level, ar);
 }
 SYMBOL_WRAP_DECL(int, lua_getinfo, lua_State *L, const char *what, lua_Debug *ar) {
-  SYMBOL_WRAP_CALL(lua_getinfo, L, what, ar);
+  return SYMBOL_WRAP_CALL(lua_getinfo, L, what, ar);
 }
 SYMBOL_WRAP_DECL(const char *, lua_getlocal, lua_State *L, const lua_Debug *ar, int n) {
-  SYMBOL_WRAP_CALL(lua_getlocal, L, ar, n);
+  return SYMBOL_WRAP_CALL(lua_getlocal, L, ar, n);
 }
 SYMBOL_WRAP_DECL(const char *, lua_setlocal, lua_State *L, const lua_Debug *ar, int n) {
-  SYMBOL_WRAP_CALL(lua_setlocal, L, ar, n);
+  return SYMBOL_WRAP_CALL(lua_setlocal, L, ar, n);
 }
 SYMBOL_WRAP_DECL(const char *, lua_getupvalue, lua_State *L, int funcindex, int n) {
-  SYMBOL_WRAP_CALL(lua_getupvalue, L, funcindex, n);
+  return SYMBOL_WRAP_CALL(lua_getupvalue, L, funcindex, n);
 }
 SYMBOL_WRAP_DECL(const char *, lua_setupvalue, lua_State *L, int funcindex, int n) {
-  SYMBOL_WRAP_CALL(lua_setupvalue, L, funcindex, n);
+  return SYMBOL_WRAP_CALL(lua_setupvalue, L, funcindex, n);
 }
 
 SYMBOL_WRAP_DECL(void *, lua_upvalueid, lua_State *L, int fidx, int n) {
-  SYMBOL_WRAP_CALL(lua_upvalueid, L, fidx, n);
+  return SYMBOL_WRAP_CALL(lua_upvalueid, L, fidx, n);
 }
 SYMBOL_WRAP_DECL(void, lua_upvaluejoin, lua_State *L, int fidx1, int n1, int fidx2, int n2) {
   SYMBOL_WRAP_CALL(lua_upvaluejoin, L, fidx1, n1, fidx2, n2);
@@ -2063,17 +2103,17 @@ SYMBOL_WRAP_DECL(void, lua_sethook, lua_State *L, lua_Hook func, int mask, int c
   SYMBOL_WRAP_CALL(lua_sethook, L, func, mask, count);
 }
 SYMBOL_WRAP_DECL(lua_Hook, lua_gethook, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_gethook, L);
+  return SYMBOL_WRAP_CALL(lua_gethook, L);
 }
 SYMBOL_WRAP_DECL(int, lua_gethookmask, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_gethookmask, L);
+  return SYMBOL_WRAP_CALL(lua_gethookmask, L);
 }
 SYMBOL_WRAP_DECL(int, lua_gethookcount, lua_State *L) {
-  SYMBOL_WRAP_CALL(lua_gethookcount, L);
+  return SYMBOL_WRAP_CALL(lua_gethookcount, L);
 }
 
 SYMBOL_WRAP_DECL(int, lua_setcstacklimit, lua_State *L, unsigned int limit) {
-  SYMBOL_WRAP_CALL(lua_setcstacklimit, L, limit);
+  return SYMBOL_WRAP_CALL(lua_setcstacklimit, L, limit);
 }
 
 
@@ -2085,38 +2125,38 @@ SYMBOL_WRAP_DECL(void, luaL_checkversion_, lua_State *L, lua_Number ver, size_t 
   SYMBOL_WRAP_CALL(luaL_checkversion_, L, ver, sz);
 }
 SYMBOL_WRAP_DECL(int, luaL_getmetafield, lua_State *L, int obj, const char *e) {
-  SYMBOL_WRAP_CALL(luaL_getmetafield, L, obj, e);
+  return SYMBOL_WRAP_CALL(luaL_getmetafield, L, obj, e);
 }
 SYMBOL_WRAP_DECL(int, luaL_callmeta, lua_State *L, int obj, const char *e) {
-  SYMBOL_WRAP_CALL(luaL_callmeta, L, obj, e);
+  return SYMBOL_WRAP_CALL(luaL_callmeta, L, obj, e);
 }
 SYMBOL_WRAP_DECL(const char *, luaL_tolstring, lua_State *L, int idx, size_t *len) {
-  SYMBOL_WRAP_CALL(luaL_tolstring, L, idx, len);
+  return SYMBOL_WRAP_CALL(luaL_tolstring, L, idx, len);
 }
 SYMBOL_WRAP_DECL(int, luaL_argerror, lua_State *L, int numarg, const char *extramsg) {
-  SYMBOL_WRAP_CALL(luaL_argerror, L, numarg, extramsg);
+  return SYMBOL_WRAP_CALL(luaL_argerror, L, numarg, extramsg);
 }
 SYMBOL_WRAP_DECL(int, luaL_typeerror, lua_State *L, int arg, const char *tname) {
-  SYMBOL_WRAP_CALL(luaL_typeerror, L, arg, tname);
+  return SYMBOL_WRAP_CALL(luaL_typeerror, L, arg, tname);
 }
 SYMBOL_WRAP_DECL(const char *, luaL_checklstring, lua_State *L, int numArg, size_t *l) {
-  SYMBOL_WRAP_CALL(luaL_checklstring, L, numArg, l);
+  return SYMBOL_WRAP_CALL(luaL_checklstring, L, numArg, l);
 }
 SYMBOL_WRAP_DECL(const char *, luaL_optlstring, lua_State *L, int numArg, const char *def, size_t *l) {
-  SYMBOL_WRAP_CALL(luaL_optlstring, L, numArg, def, l);
+  return SYMBOL_WRAP_CALL(luaL_optlstring, L, numArg, def, l);
 }
 SYMBOL_WRAP_DECL(lua_Number, luaL_checknumber, lua_State *L, int numArg) {
-  SYMBOL_WRAP_CALL(luaL_checknumber, L, numArg);
+  return SYMBOL_WRAP_CALL(luaL_checknumber, L, numArg);
 }
 SYMBOL_WRAP_DECL(lua_Number, luaL_optnumber, lua_State *L, int nArg, lua_Number def) {
-  SYMBOL_WRAP_CALL(luaL_optnumber, L, nArg, def);
+  return SYMBOL_WRAP_CALL(luaL_optnumber, L, nArg, def);
 }
 
 SYMBOL_WRAP_DECL(lua_Integer, luaL_checkinteger, lua_State *L, int numArg) {
-  SYMBOL_WRAP_CALL(luaL_checkinteger, L, numArg);
+  return SYMBOL_WRAP_CALL(luaL_checkinteger, L, numArg);
 }
 SYMBOL_WRAP_DECL(lua_Integer, luaL_optinteger, lua_State *L, int nArg, lua_Integer def) {
-  SYMBOL_WRAP_CALL(luaL_optinteger, L, nArg, def);
+  return SYMBOL_WRAP_CALL(luaL_optinteger, L, nArg, def);
 }
 
 SYMBOL_WRAP_DECL(void, luaL_checkstack, lua_State *L, int sz, const char *msg) {
@@ -2129,16 +2169,16 @@ SYMBOL_WRAP_DECL(void, luaL_checkany, lua_State *L, int narg) {
   SYMBOL_WRAP_CALL(luaL_checkany, L, narg);
 }
 SYMBOL_WRAP_DECL(int, luaL_newmetatable, lua_State *L, const char *tname) {
-  SYMBOL_WRAP_CALL(luaL_newmetatable, L, tname);
+  return SYMBOL_WRAP_CALL(luaL_newmetatable, L, tname);
 }
 SYMBOL_WRAP_DECL(void, luaL_setmetatable, lua_State *L, const char *tname) {
   SYMBOL_WRAP_CALL(luaL_setmetatable, L, tname);
 }
 SYMBOL_WRAP_DECL(void *, luaL_testudata, lua_State *L, int ud, const char *tname) {
-  SYMBOL_WRAP_CALL(luaL_testudata, L, ud, tname);
+  return SYMBOL_WRAP_CALL(luaL_testudata, L, ud, tname);
 }
 SYMBOL_WRAP_DECL(void *, luaL_checkudata, lua_State *L, int ud, const char *tname) {
-  SYMBOL_WRAP_CALL(luaL_checkudata, L, ud, tname);
+  return SYMBOL_WRAP_CALL(luaL_checkudata, L, ud, tname);
 }
 
 SYMBOL_WRAP_DECL(void, luaL_where, lua_State *L, int lvl) {
@@ -2155,14 +2195,14 @@ SYMBOL_WRAP_DECL(int, luaL_error, lua_State *L, const char *fmt, ...) {
 }
 
 SYMBOL_WRAP_DECL(int, luaL_checkoption, lua_State *L, int narg, const char *def, const char *const lst[]) {
-  SYMBOL_WRAP_CALL(luaL_checkoption, L, narg, def, lst);
+  return SYMBOL_WRAP_CALL(luaL_checkoption, L, narg, def, lst);
 }
 
 SYMBOL_WRAP_DECL(int, luaL_fileresult, lua_State *L, int stat, const char *fname) {
-  SYMBOL_WRAP_CALL(luaL_fileresult, L, stat, fname);
+  return SYMBOL_WRAP_CALL(luaL_fileresult, L, stat, fname);
 }
 SYMBOL_WRAP_DECL(int, luaL_execresult, lua_State *L, int stat) {
-  SYMBOL_WRAP_CALL(luaL_execresult, L, stat);
+  return SYMBOL_WRAP_CALL(luaL_execresult, L, stat);
 }
 
 
@@ -2171,29 +2211,29 @@ SYMBOL_WRAP_DECL(int, luaL_execresult, lua_State *L, int stat) {
 
 
 SYMBOL_WRAP_DECL(int, luaL_ref, lua_State *L, int t) {
-  SYMBOL_WRAP_CALL(luaL_ref, L, t);
+  return SYMBOL_WRAP_CALL(luaL_ref, L, t);
 }
 SYMBOL_WRAP_DECL(void, luaL_unref, lua_State *L, int t, int ref) {
   SYMBOL_WRAP_CALL(luaL_unref, L, t, ref);
 }
 
 SYMBOL_WRAP_DECL(int, luaL_loadfilex, lua_State *L, const char *filename, const char *mode) {
-  SYMBOL_WRAP_CALL(luaL_loadfilex, L, filename, mode);
+  return SYMBOL_WRAP_CALL(luaL_loadfilex, L, filename, mode);
 }
 
 SYMBOL_WRAP_DECL(int, luaL_loadbufferx, lua_State *L, const char *buff, size_t sz, const char *name, const char *mode) {
-  SYMBOL_WRAP_CALL(luaL_loadbufferx, L, buff, sz, name, mode);
+  return SYMBOL_WRAP_CALL(luaL_loadbufferx, L, buff, sz, name, mode);
 }
 
 SYMBOL_WRAP_DECL(int, luaL_loadstring, lua_State *L, const char *s) {
-  SYMBOL_WRAP_CALL(luaL_loadstring, L, s);
+  return SYMBOL_WRAP_CALL(luaL_loadstring, L, s);
 }
 
 SYMBOL_WRAP_DECL(lua_State *, luaL_newstate, void) {
  return __luaL_newstate();
 }
 SYMBOL_WRAP_DECL(lua_Integer, luaL_len, lua_State *L, int idx) {
-  SYMBOL_WRAP_CALL(luaL_len, L, idx);
+  return SYMBOL_WRAP_CALL(luaL_len, L, idx);
 }
 
 SYMBOL_WRAP_DECL(void, luaL_addgsub, luaL_Buffer *b, const char *s,
@@ -2201,7 +2241,7 @@ SYMBOL_WRAP_DECL(void, luaL_addgsub, luaL_Buffer *b, const char *s,
   SYMBOL_WRAP_CALL(luaL_addgsub, b, s, p, r);
 }
 SYMBOL_WRAP_DECL(const char *, luaL_gsub, lua_State *L, const char *s, const char *p, const char *r) {
-  SYMBOL_WRAP_CALL(luaL_gsub, L, s, p, r);
+  return SYMBOL_WRAP_CALL(luaL_gsub, L, s, p, r);
 }
 
 SYMBOL_WRAP_DECL(void, luaL_setfuncs, lua_State *L, const luaL_Reg *l, int nup) {
@@ -2209,7 +2249,7 @@ SYMBOL_WRAP_DECL(void, luaL_setfuncs, lua_State *L, const luaL_Reg *l, int nup) 
 }
 
 SYMBOL_WRAP_DECL(int, luaL_getsubtable, lua_State *L, int idx, const char *fname) {
-  SYMBOL_WRAP_CALL(luaL_getsubtable, L, idx, fname);
+  return SYMBOL_WRAP_CALL(luaL_getsubtable, L, idx, fname);
 }
 
 SYMBOL_WRAP_DECL(void, luaL_traceback, lua_State *L, lua_State *L1, const char *msg, int level) {
@@ -2229,7 +2269,7 @@ SYMBOL_WRAP_DECL(void, luaL_buffinit, lua_State *L, luaL_Buffer *B) {
   SYMBOL_WRAP_CALL(luaL_buffinit, L, B);
 }
 SYMBOL_WRAP_DECL(char *, luaL_prepbuffsize, luaL_Buffer *B, size_t sz) {
-  SYMBOL_WRAP_CALL(luaL_prepbuffsize, B, sz);
+  return SYMBOL_WRAP_CALL(luaL_prepbuffsize, B, sz);
 }
 SYMBOL_WRAP_DECL(void, luaL_addlstring, luaL_Buffer *B, const char *s, size_t l) {
   SYMBOL_WRAP_CALL(luaL_addlstring, B, s, l);
@@ -2247,47 +2287,47 @@ SYMBOL_WRAP_DECL(void, luaL_pushresultsize, luaL_Buffer *B, size_t sz) {
   SYMBOL_WRAP_CALL(luaL_pushresultsize, B, sz);
 }
 SYMBOL_WRAP_DECL(char *, luaL_buffinitsize, lua_State *L, luaL_Buffer *B, size_t sz) {
-  SYMBOL_WRAP_CALL(luaL_buffinitsize, L, B, sz);
+  return SYMBOL_WRAP_CALL(luaL_buffinitsize, L, B, sz);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_base, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_base, L);
+  return SYMBOL_WRAP_CALL(luaopen_base, L);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_coroutine, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_coroutine, L);
+  return SYMBOL_WRAP_CALL(luaopen_coroutine, L);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_table, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_table, L);
+  return SYMBOL_WRAP_CALL(luaopen_table, L);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_io, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_io, L);
+  return SYMBOL_WRAP_CALL(luaopen_io, L);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_os, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_os, L);
+  return SYMBOL_WRAP_CALL(luaopen_os, L);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_string, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_string, L);
+  return SYMBOL_WRAP_CALL(luaopen_string, L);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_utf8, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_utf8, L);
+  return SYMBOL_WRAP_CALL(luaopen_utf8, L);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_math, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_math, L);
+  return SYMBOL_WRAP_CALL(luaopen_math, L);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_debug, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_debug, L);
+  return SYMBOL_WRAP_CALL(luaopen_debug, L);
 }
 
 SYMBOL_WRAP_DECL(int, luaopen_package, lua_State *L) {
-  SYMBOL_WRAP_CALL(luaopen_package, L);
+  return SYMBOL_WRAP_CALL(luaopen_package, L);
 }
 
 SYMBOL_WRAP_DECL(void, luaL_openlibs, lua_State *L) {
@@ -2301,12 +2341,13 @@ SYMBOL_WRAP_DECL(void, luaL_openlibs, lua_State *L) {
 
 #define IMPORT_SYMBOL(name, ret, ...) \
   __##name = (\
-    __##name = (ret (*) (__VA_ARGS__)) symbol(#name), \
+    (*(void **) (&__##name) = symbol(#name)), \
     __##name == NULL ? ((ret (*) (__VA_ARGS__)) &__lite_xl_fallback_##name) : __##name\
   )
 
 void lite_xl_plugin_init(void *XL) {
-  void* (*symbol)(const char *) = (void* (*) (const char *)) XL;
+  void* (*symbol)(const char *);
+  *(void **) (&symbol) = XL;
   IMPORT_SYMBOL(lua_newstate, lua_State *, lua_Alloc f, void *ud);
   IMPORT_SYMBOL(lua_close, void, lua_State *L);
   IMPORT_SYMBOL(lua_newthread, lua_State *, lua_State *L);
@@ -2332,7 +2373,7 @@ void lite_xl_plugin_init(void *XL) {
   IMPORT_SYMBOL(lua_tointegerx, lua_Integer, lua_State *L, int idx, int *isnum);
   IMPORT_SYMBOL(lua_toboolean, int, lua_State *L, int idx);
   IMPORT_SYMBOL(lua_tolstring, const char *, lua_State *L, int idx, size_t *len);
-  IMPORT_SYMBOL(lua_rawlen, size_t, lua_State *L, int idx);
+  IMPORT_SYMBOL(lua_rawlen, lua_Unsigned, lua_State *L, int idx);
   IMPORT_SYMBOL(lua_tocfunction, lua_CFunction, lua_State *L, int idx);
   IMPORT_SYMBOL(lua_touserdata, void *, lua_State *L, int idx);
   IMPORT_SYMBOL(lua_tothread, lua_State *, lua_State *L, int idx);
@@ -2476,6 +2517,25 @@ void lite_xl_plugin_init(void *XL);
 #undef SYMBOL_WRAP_CALL
 #undef SYMBOL_WRAP_CALL_FB
 #undef SYMBOL_DECLARE
+#undef SYMBOL_DECLARE_VARARG
+#undef UNUSED
+#undef CONCAT
+#undef CONCAT1
+#undef CONCAT2
+#undef FE_1
+#undef FE_2
+#undef FE_3
+#undef FE_4
+#undef FE_5
+#undef FE_6
+#undef FE_7
+#undef FE_8
+#undef FOR_EACH_NARG
+#undef FOR_EACH_NARG_
+#undef FOR_EACH_ARG_N
+#undef FOR_EACH_RSEQ_N
+#undef FOR_EACH_
+#undef FOR_EACH
 
 #endif /* LITE_XL_PLUGIN_API */
 
@@ -2500,4 +2560,4 @@ void lite_xl_plugin_init(void *XL);
 * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-******************************************************************************/
+******************************************************************************/ 
